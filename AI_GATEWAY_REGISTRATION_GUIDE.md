@@ -191,6 +191,42 @@ AI Gateway 가 driver-proxy 에 인증할 때 쓸 토큰입니다.
 > **노트북에서 테스트할 때는 정상으로 보이므로** 특히 주의해야 합니다.  
 > **판별법**: `databricks tokens list` 결과에 그 토큰이 보이면 정상입니다.
 
+### API Scope 는 `clusters` 하나만 주십시오
+
+PAT 는 발급 시 **API scope** 를 지정할 수 있고(scoped PAT), UI 의 **새 토큰 생성** 화면은
+scope 선택을 요구합니다. **driver-proxy 도달에 필요한 scope 는 `clusters` 하나입니다.**
+
+scope 조합별로 단기 토큰을 발급해 **워크스페이스 외부**(= 게이트웨이와 같은 위치)에서
+driver-proxy 를 호출한 실측입니다.
+
+| 지정한 scope | driver-proxy 응답 |
+|---|---|
+| (미지정 = all-apis) | 200 |
+| **`clusters`** | **200** ← 이것만으로 충분합니다 |
+| `command-execution` · `workspace` · `databricks-connect` · `model-serving-inference` | 403 |
+| `ai-gateway` | **403** |
+
+> ⚠️ **이름 때문에 `ai-gateway` 를 고르기 쉽지만 403 입니다.** 그 scope 는 *게이트웨이
+> 엔드포인트를 호출하는* 쪽(외부 agent)의 권한이고, 이 PAT 는 반대 방향 — *게이트웨이가
+> driver-proxy 를 호출할* 때 쓰는 **상류 인증**입니다. 서로 다른 토큰입니다.
+
+scope 가 부족하면 driver-proxy 가 **필요한 scope 이름을 그대로 알려줍니다.**
+
+```json
+HTTP 403
+{"error_code":403,
+ "message":"Provided access token does not have required scopes: clusters [ReqId: ...]"}
+```
+
+전체 scope 목록은 `databricks api get /api/2.0/token-scopes --profile <P>` 로 확인할 수 있습니다
+(검증 환경 55개).
+
+**auto-scoping 은 끄십시오.** Databricks 는 30일 이상 수명의 토큰과 all-APIs 토큰에 대해 사용
+현황을 관찰한 뒤 scope 를 **자동으로 좁힙니다.** 상류 인증 토큰이 그렇게 조용히 좁혀지면
+엔드포인트는 계속 `READY` 인 채로 호출만 403 이 되어 원인을 찾기 어렵습니다(§8 의 502 와 같은
+구조). scope 를 수동 지정하면 그 토큰의 auto-scoping 은 영구 비활성화됩니다.
+단, 자동 축소가 실제로 게이트웨이를 깨뜨리는지는 30일 관찰이 필요해 **실측하지 못했습니다.**
+
 ### 발급 방법 A (권장) — 로컬 CLI, 토큰이 화면에 표시되지 않음
 
 ```bash
@@ -199,20 +235,33 @@ databricks secrets create-scope vllm-gateway --profile <P>
 python3 -c "
 from databricks.sdk import WorkspaceClient
 w = WorkspaceClient(profile='<P>')
-t = w.tokens.create(comment='ai-gateway-vllm', lifetime_seconds=2592000)   # 30일
+r = w.api_client.do('POST', '/api/2.0/token/create', body={
+        'comment': 'ai-gateway-vllm driver-proxy',
+        'lifetime_seconds': 2592000,     # 30일
+        'scopes': ['clusters'],          # 최소 권한
+        'autoscope_enabled': False})
 w.secrets.put_secret(scope='vllm-gateway', key='driver_proxy_pat',
-                     string_value=t.token_value)
-print('token_id:', t.token_info.token_id)"
+                     string_value=r['token_value'])
+print('token_id:', r['token_info']['token_id'], 'scopes:', r['token_info']['scopes'])"
 ```
 
 토큰 값이 터미널·파일·노트북 어디에도 남지 않습니다.
 
+> **`w.tokens.create(...)` 대신 `api_client.do` 를 쓰는 이유**: SDK 의 `tokens.create` 에
+> `scopes` 파라미터가 추가된 것은 최근 버전입니다(실측: 0.73.0 **없음** / 0.108.0 **있음**).
+> `api_client.do` 는 SDK 버전에 무관하게 동작합니다. CLI `databricks tokens create` 에는
+> 아직 `--scopes` 플래그가 없습니다(v1.1.0 실측).
+
 ### 발급 방법 B — UI 로 발급 후 노트북에 붙여넣기
 
-1. 우상단 사용자 메뉴 → **설정 → 개발자 → 액세스 토큰 → 새 토큰 생성** (수명 30일)
-2. 노트북 `notebook_gateway_register.py` 의 **셀 3** 을 실행하면 `pat` 입력칸이 나타납니다
-3. 값을 붙여넣고 셀을 **다시 실행**
-4. 저장 확인 후 입력칸을 **비웁니다**
+1. 우상단 사용자 메뉴 → **설정 → 개발자 → 액세스 토큰 → 새 토큰 생성**
+2. 수명을 **30일**로 지정합니다
+3. **API Scopes** 에서 **Other APIs** 를 선택하고 **Clusters** 만 체크합니다
+   (**BI Tools** 를 고르면 SQL 계열 scope 가 들어가 driver-proxy 는 403 입니다)
+4. **Auto-scope tokens** 는 **끕니다** (위 설명 참조)
+5. 노트북 `notebook_gateway_register.py` 의 **셀 3** 을 실행하면 `pat` 입력칸이 나타납니다
+6. 값을 붙여넣고 셀을 **다시 실행**
+7. 저장 확인 후 입력칸을 **비웁니다**
 
 셀 3 은 붙여넣은 값이 노트북 컨텍스트 토큰과 같으면 저장을 거부합니다.
 
@@ -525,6 +574,7 @@ Databricks 는 엔드포인트 생성 시 **호출한 신원을 생성자로 기
 | **404** · `ENDPOINT_NOT_FOUND` · 본문에 `The model ... does not exist` | 엔드포인트의 모델 이름과 vLLM 의 `--served-model-name` 불일치 | 노트북 셀 2 가 vLLM 에서 직접 읽으므로 셀 2→4 를 다시 실행 |
 | **403** · `Invalid request` | secret 의 토큰이 노트북에서 얻은 토큰 | 노트북 밖에서 발급한 PAT 로 교체 (§3). 판별: `databricks tokens list` 에 보이는지 |
 | **403** · `Invalid access token` | PAT 가 **폐기**됨 (실측) | 새 토큰을 같은 secret 에 저장. **폐기는 즉시 반영되지 않고 수분 지연**이 있습니다 |
+| **403** · `does not have required scopes: clusters` | PAT 에 **`clusters` scope 가 없음** (실측). `ai-gateway` scope 를 고른 경우가 대표적입니다 | §3 「API Scope」 참조. `scopes:['clusters']` 로 재발급하십시오. `PATCH /api/2.0/token/<token_id>` 로 scope 만 고치는 경로도 있으나(전파 최대 10분) **이 프로젝트에서 실측하지 않았습니다** |
 | **403** 또는 **401** | PAT **만료** | 새 토큰을 같은 secret 에 저장. 만료 시 어느 코드가 오는지는 미검증입니다 |
 | 호출이 전부 **401** | vLLM 에 **`--api-key` 를 설정**함 | driver-proxy 가 `Authorization` 을 상류로 전달하지 않으므로 `--api-key` 를 제거하고 §2 로 재기동 |
 | **401** (호출자 측) | `Authorization` 헤더 없음 | 호출자 토큰을 확인하십시오 |

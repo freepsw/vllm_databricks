@@ -126,6 +126,8 @@ FP8 가중치는 `MarlinFP8ScaledMMLinearKernel`(W8A16 weight-only)로 처리되
 - Private Link · public access 차단 워크스페이스에서의 도달성 → **`AI_GATEWAY_REGISTRATION_GUIDE.md` §0.2 로 먼저 판별하십시오**
 - serverless egress 제한 정책 하에서의 동작
 - 서비스 프린시펄 PAT 로 driver-proxy 통과
+- PAT **auto-scoping**(30일 관찰 후 scope 자동 축소)이 상류 인증을 실제로 깨뜨리는지
+  → 가이드 §3 은 발급 시 끄도록 안내합니다
 - Unity Catalog Volume 배포 경로 · payload 로깅 · usage 기록 조회 (검증 환경에 metastore 없음)
 - DBFS 가 차단된 워크스페이스의 오류 문구
 - AWS · GCP (Azure 에서만 검증)

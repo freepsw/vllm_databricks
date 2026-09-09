@@ -507,7 +507,11 @@ for f in glob.glob(f"{DST}/*.sh"):
 print(f"Scripts copied to {DST}. Files: {sorted(os.listdir(DST))}")
 ```
 
-**복사된 파일 수를 확인하십시오.** 9개(가중치·검증·게이트웨이 스크립트 포함)가 나와야 합니다.
+**복사된 파일 수를 확인하십시오.** **7개**(`00_check_prereq.py` · `01_cluster.json` ·
+`02_build_venv.py` · `03_stage_weights.py` · `04_serve.sh` · `05_validate.py` · `06_soak.py`)가
+나와야 합니다. 게이트웨이 연결에는 **추가 스크립트가 필요하지 않습니다** — 노트북
+`notebook_gateway_register.py` 가 외부 파일 의존 없이 단독으로 수행합니다(§「이 패키지에 포함되지
+않은 것」 참조).
 0개이거나 확장자가 없는 이름이 보이면 업로드 형식이 잘못된 것입니다(§2.3 의 `--format RAW` 확인).
 
 **중요**: `/local_disk0`는 클러스터 **재시작 시 초기화**되므로, 클러스터를 재시작할 때마다

@@ -28,6 +28,9 @@
 # MAGIC
 # MAGIC - `/local_disk0`은 **클러스터 재시작 시 초기화**됩니다. 재시작했다면 셀 1부터 다시 실행하십시오.
 # MAGIC - 셀 5(serve)는 **5분 넘게 아무 출력이 없는 구간**이 있습니다. 정상입니다. 중단하지 마십시오.
+# MAGIC - **셀 5 실행 전에 위젯 `3. serve 바인드 주소`·`4. tool calling 파서`를 정하십시오.**
+# MAGIC   AI Gateway로 갈 예정이면 `0.0.0.0`·`qwen3_xml`입니다. 나중에 바꾸면 셀 5를 다시 실행해야 합니다
+# MAGIC   (약 5분). 근거는 셀 5의 결정 표를 보십시오.
 
 # COMMAND ----------
 
@@ -47,6 +50,10 @@
 
 dbutils.widgets.text("scripts_src", "/dbfs/FileStore/qwen38-scripts", "1. 스크립트 업로드 경로")
 dbutils.widgets.text("soak_duration_s", "28800", "2. soak 시험 시간(초)")
+# 셀 5(serve)에서 쓰는 결정값. 가이드 §4.1 결정 표를 그대로 옮긴 것이다.
+# 나중에 바꾸면 serve 를 다시 올려야 하므로(약 5분) 셀 5 실행 전에 정한다.
+dbutils.widgets.dropdown("bind_host", "127.0.0.1", ["127.0.0.1", "0.0.0.0"], "3. serve 바인드 주소")
+dbutils.widgets.dropdown("tool_call_parser", "없음", ["없음", "qwen3_xml"], "4. tool calling 파서")
 
 SRC = dbutils.widgets.get("scripts_src")
 DST = "/local_disk0/scripts"
@@ -144,29 +151,76 @@ print(f"[종료코드] {_r.returncode}")
 # MAGIC
 # MAGIC `04_serve.sh`가 환경 정리 → 분리 실행 → `/health` 대기 → 기동 로그 확인까지 수행합니다.
 # MAGIC
+# MAGIC ### ⚠️ 먼저 바인드 주소를 정하십시오 (가이드 §4.1 결정 표)
+# MAGIC
+# MAGIC 위쪽 **`3. serve 바인드 주소`** · **`4. tool calling 파서`** 위젯으로 정합니다.
+# MAGIC
+# MAGIC | 계획 | `3. 바인드 주소` | `4. tool 파서` |
+# MAGIC |---|---|---|
+# MAGIC | 이 노트북의 셀 6 검증까지만 (드라이버 내부에서만 호출) | `127.0.0.1` | `없음` |
+# MAGIC | **AI Gateway 연결 · 외부 agent 호출 예정** | **`0.0.0.0`** | **`qwen3_xml`** |
+# MAGIC
+# MAGIC - `0.0.0.0`이 필수인 이유: driver-proxy는 드라이버의 **사설 IP**로 접속하므로
+# MAGIC   `127.0.0.1`이면 엔드포인트 호출이 전부 **502**가 됩니다.
+# MAGIC - 보안 영향: `0.0.0.0`은 VNet에 8005를 노출하며 **이 포트에는 인증이 없습니다**
+# MAGIC   (`DEPLOYMENT_GUIDE.md` §6.1).
+# MAGIC - `qwen3_xml`이 없으면 `tools`를 담은 요청이 무시되지 않고 **HTTP 400**으로 거절됩니다.
+# MAGIC - **나중에 바꾸려면 이 셀을 다시 실행해야 합니다(약 5분).** 게이트웨이를 쓸 가능성이 있으면
+# MAGIC   지금 `0.0.0.0`을 고르십시오 — 그러면 `AI_GATEWAY_REGISTRATION_GUIDE.md` §2를 건너뜁니다.
+# MAGIC
 # MAGIC ### ⚠️ 이 셀은 5분 이상 걸립니다
 # MAGIC
 # MAGIC `대기 중... (N초/1200초)`가 30초마다 찍히다가 **300초 부근에서 통과**합니다.
 # MAGIC 그 사이 출력이 멈춘 것처럼 보이는 것은 정상입니다. **중단하지 마십시오.**
 # MAGIC
-# MAGIC **성공 판정**: `✓ /health 정상 응답` 후 `✅ serve 기동 완료`.
-# MAGIC 기동 로그 oracle이 아래와 같으면 검증된 구성과 동일합니다.
+# MAGIC 단, **클러스터를 재시작하지 않은 상태에서 이 셀을 다시 실행하면 약 45초**로 끝납니다
+# MAGIC (torch.compile 캐시가 `/local_disk0`에 남아 재사용됩니다 — 실측 319초 → 45초).
+# MAGIC 바인드 주소를 바꿔 다시 올릴 때는 5분을 기다리지 않아도 됩니다.
 # MAGIC
-# MAGIC | 항목 | 기대값 |
+# MAGIC **성공 판정**: `✓ /health 정상 응답` 후 `✅ serve 기동 완료` · `[종료코드] 0`.
+# MAGIC
+# MAGIC **판정 기준은 아래 4개입니다.** 결정론적이므로 값이 다르면 실제로 설정이 잘못된 것입니다
+# MAGIC (`DEPLOYMENT_GUIDE.md` §4.4).
+# MAGIC
+# MAGIC | 판정 항목 | 기대값 |
 # MAGIC |---|---|
 # MAGIC | 커널 | `MarlinFP8ScaledMMLinearKernel` |
 # MAGIC | attention 백엔드 | `FLASHINFER` |
 # MAGIC | attention block size | `1568` |
 # MAGIC | mamba padding | `0.13%` |
-# MAGIC | GPU KV cache | `1,188,386` 토큰 · 동시성 `9.07x` |
-# MAGIC | Available KV cache | `39.06 GiB` |
 # MAGIC
-# MAGIC 262K 컨텍스트가 필요하면 `MAX_MODEL_LEN=262144 bash /local_disk0/scripts/04_serve.sh`로 실행하십시오.
+# MAGIC 아래 3개는 **참고 범위이며 정확한 값 일치로 판정하지 마십시오.** 같은 플래그로 다시 띄워도
+# MAGIC 기동 시점의 여유 VRAM에 따라 약 5% 변동합니다.
+# MAGIC
+# MAGIC | 참고 항목 | 범위 | 실측 3회 |
+# MAGIC |---|---|---|
+# MAGIC | GPU KV cache | 약 `1,188,000` ~ `1,241,000` 토큰 | `1,188,386` (2회) · `1,240,814` (1회) |
+# MAGIC | 최대 동시성 | 약 `9.1x` ~ `9.5x` | `9.07x` (2회) · `9.47x` (1회) |
+# MAGIC | Available KV cache | 약 `39~41 GiB` | `39.06` (2회) · `40.78` (1회) |
+# MAGIC
+# MAGIC 262K 컨텍스트가 필요하면 아래 셀의 `env` 에 `"MAX_MODEL_LEN": "262144"` 를 추가하십시오.
 
 # COMMAND ----------
 
-# MAGIC %sh
-# MAGIC bash /local_disk0/scripts/04_serve.sh
+import os, subprocess
+
+_TOOL = dbutils.widgets.get("tool_call_parser")
+
+env = dict(os.environ)
+env.update({
+    "BIND_HOST": dbutils.widgets.get("bind_host"),
+    # 04_serve.sh 는 빈 문자열이면 tool calling 플래그를 붙이지 않는다.
+    "TOOL_CALL_PARSER": "" if _TOOL == "없음" else _TOOL,
+})
+print(f"BIND_HOST={env['BIND_HOST']}  TOOL_CALL_PARSER={env['TOOL_CALL_PARSER'] or '(미지정)'}")
+
+# capture_output 으로 받으면 5분 넘게 아무것도 보이지 않으므로 줄 단위로 흘려보낸다.
+_p = subprocess.Popen(["bash", "/local_disk0/scripts/04_serve.sh"], env=env,
+                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                      text=True, bufsize=1)
+for _line in _p.stdout:
+    print(_line, end="")
+print(f"[종료코드] {_p.wait()}")
 
 # COMMAND ----------
 
