@@ -1,0 +1,18 @@
+{
+  "cluster_name": "qwen38-27b-vllm-test",
+  "spark_version": "19.x-gpu-ml-scala2.13",
+  "node_type_id": "Standard_NC24ads_A100_v4",
+  "num_workers": 0,
+  "autotermination_minutes": 90,
+  "data_security_mode": "SINGLE_USER",
+  "single_user_name": "<customer-email@example.com>",
+  "spark_conf": {
+    "spark.master": "local[*, 4]",
+    "spark.databricks.cluster.profile": "singleNode"
+  },
+  "custom_tags": {
+    "ResourceClass": "SingleNode",
+    "Owner": "<customer-email@example.com>",
+    "purpose": "qwen38-27b-vllm-deployment"
+  }
+}
