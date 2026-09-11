@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # Qwen3.8-27B (FP8) × vLLM 0.28.0 배포 실행 노트북
 # MAGIC
-# MAGIC 이 노트북은 `DEPLOYMENT_GUIDE.md`의 §2.4 ~ §5.2를 순서대로 실행합니다.
+# MAGIC 이 노트북은 배포 문서 STEP1 ~ STEP3 · STEP5 의 실행 셀을 순서대로 담고 있습니다.
 # MAGIC 각 셀을 **위에서 아래로 하나씩** 실행하십시오.
 # MAGIC
 # MAGIC ### 전제 조건
@@ -17,9 +17,9 @@
 # MAGIC |---|---|---|
 # MAGIC | 1 | 스크립트 배포 | 몇 초 |
 # MAGIC | 2 | 사전 점검 | 10초 이내 |
-# MAGIC | 3 | venv 빌드 | 약 62초 |
-# MAGIC | 4 | 가중치 확보 | 약 72초 (약 29 GB) |
-# MAGIC | 5 | vLLM serve 기동 | 약 310초 |
+# MAGIC | 3 | venv 빌드 | 약 62~77초 |
+# MAGIC | 4 | 가중치 확보 | 약 72~76초 (약 30 GB) |
+# MAGIC | 5 | vLLM serve 기동 | 콜드 약 280~320초 · 재기동 45~190초 |
 # MAGIC | 6 | 검증 8항목 | 약 10분 |
 # MAGIC | 7~9 | 장시간 안정성 (선택) | 기본 8시간 |
 # MAGIC | 10 | 정리 | 몇 초 |
@@ -104,7 +104,7 @@ print(f"[종료코드] {_r.returncode}")
 # MAGIC vLLM 0.28.0 전용 격리 환경을 만듭니다. DBR의 torch를 건드리지 않습니다.
 # MAGIC
 # MAGIC **성공 판정**: `[02] SUCCESS: vllm 0.28.0 torch 2.13.0+cu130 13.0 tf 5.16.1` · `[종료코드] 0`
-# MAGIC (약 62초 · 7.6 GB)
+# MAGIC (약 62~77초 · 7.6 GB)
 
 # COMMAND ----------
 
@@ -123,7 +123,7 @@ print(f"[종료코드] {_r.returncode}")
 # MAGIC 아래 셀은 **HuggingFace에서 직접 다운로드**합니다 (§3.4 A).
 # MAGIC
 # MAGIC **성공 판정**: `[03] Shard 개수: 66 (예상: 66)` · `[03] 검증 성공` · `[종료코드] 0`
-# MAGIC (약 72초 · 약 29 GB)
+# MAGIC (약 72~76초 · 약 30 GB)
 # MAGIC
 # MAGIC ### 폐쇄망이라면 (§3.4 B)
 # MAGIC
@@ -163,10 +163,11 @@ print(f"[종료코드] {_r.returncode}")
 # MAGIC - `0.0.0.0`이 필수인 이유: driver-proxy는 드라이버의 **사설 IP**로 접속하므로
 # MAGIC   `127.0.0.1`이면 엔드포인트 호출이 전부 **502**가 됩니다.
 # MAGIC - 보안 영향: `0.0.0.0`은 VNet에 8005를 노출하며 **이 포트에는 인증이 없습니다**
-# MAGIC   (`DEPLOYMENT_GUIDE.md` §6.1).
+# MAGIC   (드라이버는 워크스페이스 VNet 안에 있고, 외부에서 오는 경로인 driver-proxy 는
+# MAGIC   Bearer 인증을 요구합니다 — STEP3 「기동 전 결정」 참조).
 # MAGIC - `qwen3_xml`이 없으면 `tools`를 담은 요청이 무시되지 않고 **HTTP 400**으로 거절됩니다.
 # MAGIC - **나중에 바꾸려면 이 셀을 다시 실행해야 합니다(약 5분).** 게이트웨이를 쓸 가능성이 있으면
-# MAGIC   지금 `0.0.0.0`을 고르십시오 — 그러면 `AI_GATEWAY_REGISTRATION_GUIDE.md` §2를 건너뜁니다.
+# MAGIC   지금 `0.0.0.0`을 고르십시오 — 그러면 STEP4 의 vLLM 재기동 단계를 건너뜁니다.
 # MAGIC
 # MAGIC ### ⚠️ 이 셀은 5분 이상 걸립니다
 # MAGIC
@@ -180,7 +181,7 @@ print(f"[종료코드] {_r.returncode}")
 # MAGIC **성공 판정**: `✓ /health 정상 응답` 후 `✅ serve 기동 완료` · `[종료코드] 0`.
 # MAGIC
 # MAGIC **판정 기준은 아래 4개입니다.** 결정론적이므로 값이 다르면 실제로 설정이 잘못된 것입니다
-# MAGIC (`DEPLOYMENT_GUIDE.md` §4.4).
+# MAGIC (STEP3 「기동 정상 판정 — Oracle 표」와 같은 기준입니다).
 # MAGIC
 # MAGIC | 판정 항목 | 기대값 |
 # MAGIC |---|---|

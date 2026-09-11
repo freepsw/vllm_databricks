@@ -1,0 +1,19 @@
+# Databricks Apps 런타임 설정 — STEP4B 와 함께 씁니다.
+#
+# ⚠️ 배포 전에 VLLM_CLUSTER_ID 의 값을 vLLM 이 도는 클러스터 ID 로 바꾸십시오.
+#    (형식 예: 0000-000000-xxxxxxxx — `databricks clusters list` 또는 클러스터 화면 URL 로 확인)
+#
+# DRIVER_PAT 는 값을 여기에 적지 않습니다. `valueFrom: driver_pat` 은 앱에 연결한
+# secret 리소스의 이름이며, 실제 값은 Databricks secret 에서 주입됩니다(STEP4B §3·§4).
+command:
+  - python
+  - app.py
+env:
+  - name: VLLM_CLUSTER_ID
+    value: "<클러스터ID>"
+  - name: VLLM_PORT
+    value: "8005"
+  - name: VLLM_MODEL
+    value: "qwen38-27b"
+  - name: DRIVER_PAT
+    valueFrom: driver_pat

@@ -11,6 +11,11 @@ Checks:
   - Environment variables (OPENSSL*, FIPS*, PYTHONPATH, LD_LIBRARY_PATH)
   - Network reachability (PyPI, HuggingFace)
 
+NOTE: The network check above tests egress from the CLASSIC cluster driver only.
+It does NOT detect the serverless egress control (account network policy) that can
+block the AI Gateway hop (endpoint -> workspace FQDN /driver-proxy-api). A PASS here
+does not mean the gateway path works -- run deployment/STEP0_gateway_precheck.md for that.
+
 Exit code: 0 if all PASS, 1 if any FAIL
 """
 

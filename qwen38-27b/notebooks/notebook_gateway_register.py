@@ -221,9 +221,24 @@ r = requests.post(URL, headers=HEAD, timeout=300, json={
                   "content": "사과가 17개씩 든 상자 23개에서 46개를 먹었다. 남은 수를 구하라."}]})
 
 if not r.ok:
-    # 502 → vLLM 바인드(셀 2) · 403 → PAT 출처(셀 3) · 404 → 상류 모델명
+    # 502 → vLLM 바인드(셀 2) · 403 → PAT 출처·scope(셀 3) · 404 → 상류 모델명
+    # CUSTOMER_UNAUTHORIZED (serverless network policy) → 게이트웨이의 egress 차단.
+    #   vLLM 과 무관합니다. STEP0 §3(시험 B) · §4(선택지) 와 부록 A4 를 보십시오.
     # 실제 원인은 최상위 error_code 가 아니라 external_model_error 안에 들어 있습니다
     print("실패", r.status_code, r.text[:400])
+
+    # 어느 hop 이 막혔는지 여기서 분리한다: 게이트웨이를 건너뛰고 driver-proxy 를 직접 호출
+    d = requests.post(PROXY, timeout=120,
+                      headers={"Authorization": f"Bearer {dbutils.secrets.get(SCOPE, KEY)}",
+                               "Content-Type": "application/json"},
+                      json={"model": SERVED, "max_tokens": 50,
+                            "messages": [{"role": "user", "content": "1+1?"}]})
+    print("driver-proxy 직접:", d.status_code, d.text[:200])
+    if d.ok:
+        print("→ 상류(vLLM·바인드·PAT)는 정상. 막힌 곳은 '엔드포인트 → driver-proxy' hop 뿐입니다.")
+        print("  serverless network policy 를 확인하십시오 (STEP0 §3 시험 B · §4 선택지 · 부록 A4).")
+    else:
+        print("→ 상류 자체가 실패합니다. 셀 2(바인드) 와 셀 3(PAT 출처·scope) 를 다시 보십시오.")
 r.raise_for_status()
 
 body    = r.json()
